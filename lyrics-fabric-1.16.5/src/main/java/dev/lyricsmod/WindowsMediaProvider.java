@@ -1,7 +1,8 @@
 // ============================================================================
-//  LYRICS MOD — ALL-IN-ONE (1.16.5 Fabric)
+//  LYRICS MOD — ALL-IN-ONE (1.16.5 Fabric) + РУССКОЕ МЕНЮ + 3D-ТЕКСТ + RGB-ПИКЕР
 //  Пакет: dev.lyricsmod
-//  Замени все старые .java-файлы этим одним файлом.
+//  Замени ВСЕ старые .java-файлы этим одним файлом.
+//  Не забудь оставить lyrics_media.ps1 в src/main/resources/
 // ============================================================================
 package dev.lyricsmod;
 
@@ -22,6 +23,7 @@ import net.minecraft.client.font.TextRenderer;
 import net.minecraft.client.gui.DrawableHelper;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.gui.widget.ButtonWidget;
+import net.minecraft.client.gui.widget.SliderWidget;
 import net.minecraft.client.network.ClientPlayerEntity;
 import net.minecraft.client.options.KeyBinding;
 import net.minecraft.client.render.Camera;
@@ -48,6 +50,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.function.IntConsumer;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -153,7 +156,7 @@ final class LyricsConfig {
     public boolean lyrics3d = false;
     public boolean elytraMode = true;
 
-    // ==== НОВЫЕ НАСТРОЙКИ 3D-ТЕКСТА ====
+    // ==== 3D-ТЕКСТ ====
     public float depth = 2.0f;
     public int depthColor = 0x000000;
     public float depthAlpha = 0.8f;
@@ -164,6 +167,7 @@ final class LyricsConfig {
 
     public int baseColor = 0xFFFFFF;
 
+    // ==== ЭФФЕКТ ПО СЛОВУ ====
     public boolean wordByWord = false;
     public float appearSpeed = 0.15f;
     public boolean highlightActive = true;
@@ -337,11 +341,10 @@ final class LyricsHud implements HudRenderCallback {
             int dist = Math.abs(i - cur);
             boolean isCurrent = dist == 0;
 
-            if (isCurrent && cfg.highlightActive && !cfg.lyrics3d) {
-                // Эффект "по слову" + пульс насыщенности/размера
+            if (isCurrent && cfg.highlightActive && cfg.wordByWord) {
                 drawWordByWord(m, tr, s, i * LINE_H, now);
             } else {
-                int color = isCurrent ? 0xFFFFFFFF : dist == 1 ? 0xFF9A9A9A : 0xFF666666;
+                int color = isCurrent ? cfg.baseColor : dist == 1 ? 0x9A9A9A : 0x666666;
                 if (cfg.depth > 0.1f) {
                     int layers = Math.max(1, (int)cfg.depth);
                     for (int d = layers; d >= 1; d--)
@@ -355,7 +358,7 @@ final class LyricsHud implements HudRenderCallback {
                     for (int k = 0; k < dirs.length; k += 2)
                         tr.draw(m, s, -tr.getWidth(s)/2f + dirs[k], i*LINE_H + dirs[k+1], oc);
                 }
-                tr.drawWithShadow(m, s, -tr.getWidth(s)/2f, i*LINE_H, color);
+                tr.drawWithShadow(m, s, -tr.getWidth(s)/2f, i*LINE_H, withAlpha(color, 255));
             }
         }
         m.pop();
@@ -371,7 +374,7 @@ final class LyricsHud implements HudRenderCallback {
         for (int w = 0; w < words.length; w++) {
             String word = words[w] + (w < words.length - 1 ? " " : "");
             float ww = tr.getWidth(word);
-            boolean active = (w == activeIdx) && cfg.highlightActive;
+            boolean active = (w == activeIdx);
             float sc = active ? cfg.highlightScale : 1.0f;
             int color = active
                     ? boostSaturation(cfg.highlightColor, cfg.highlightSaturationBoost)
@@ -395,7 +398,7 @@ final class LyricsHud implements HudRenderCallback {
                 for (int k = 0; k < dirs.length; k += 2)
                     tr.draw(m, word, x + dirs[k], y + dirs[k+1], oc);
             }
-            tr.drawWithShadow(m, word, x, y, color);
+            tr.drawWithShadow(m, word, x, y, withAlpha(color, 255));
             m.pop();
             x += ww;
         }
@@ -569,6 +572,7 @@ final class LyricsSettingsScreen extends Screen {
     private static Text onOff(String name, boolean v) { return new LiteralText(name + ": " + (v ? "ВКЛ" : "ВЫКЛ")); }
     private static Text val(String name, Object v) { return new LiteralText(name + ": " + v); }
     private static String f2(double v) { return String.format("%.2f", v); }
+    private static String hex(int c) { return String.format("#%06X", c & 0xFFFFFF); }
 
     @Override
     protected void init() {
@@ -593,7 +597,8 @@ final class LyricsSettingsScreen extends Screen {
         }));
 
         y += gap;
-        addButton(new ButtonWidget(left, y, w, h, val("Позиция", cfg.position == LyricsConfig.Position.BOTTOM ? "СНИЗУ" : "СВЕРХУ"), b -> {
+        addButton(new ButtonWidget(left, y, w, h,
+                val("Позиция", cfg.position == LyricsConfig.Position.BOTTOM ? "СНИЗУ" : "СВЕРХУ"), b -> {
             cfg.position = cfg.position.next();
             b.setMessage(val("Позиция", cfg.position == LyricsConfig.Position.BOTTOM ? "СНИЗУ" : "СВЕРХУ"));
         }));
@@ -625,47 +630,57 @@ final class LyricsSettingsScreen extends Screen {
         addButton(new ButtonWidget(left, y, w, h, val("Толщина обводки", f2(cfg.outlineThickness)), b -> {
             cfg.outlineThickness = (cfg.outlineThickness + 0.5f) % 5f; b.setMessage(val("Толщина обводки", f2(cfg.outlineThickness)));
         }));
-        addButton(new ButtonWidget(right, y, w, h, val("Цвет обводки", Integer.toHexString(cfg.outlineColor).toUpperCase()), b -> {
-            cfg.outlineColor = nextColor(cfg.outlineColor); b.setMessage(val("Цвет обводки", Integer.toHexString(cfg.outlineColor).toUpperCase()));
+        addButton(new ButtonWidget(right, y, w, h, val("Цвет обводки", hex(cfg.outlineColor)), b -> {
+            client.openScreen(new ColorPickerScreen(this, "Цвет обводки", cfg.outlineColor, c -> {
+                cfg.outlineColor = c & 0xFFFFFF;
+            }));
         }));
 
         y += gap;
-        addButton(new ButtonWidget(left, y, w, h, val("Цвет текста", Integer.toHexString(cfg.baseColor).toUpperCase()), b -> {
-            cfg.baseColor = nextColor(cfg.baseColor); b.setMessage(val("Цвет текста", Integer.toHexString(cfg.baseColor).toUpperCase()));
+        addButton(new ButtonWidget(left, y, w, h, val("Цвет текста", hex(cfg.baseColor)), b -> {
+            client.openScreen(new ColorPickerScreen(this, "Цвет текста", cfg.baseColor, c -> {
+                cfg.baseColor = c & 0xFFFFFF;
+            }));
         }));
-        addButton(new ButtonWidget(right, y, w, h, onOff("По слову", cfg.wordByWord), b -> {
+        addButton(new ButtonWidget(right, y, w, h, val("Цвет глубины", hex(cfg.depthColor)), b -> {
+            client.openScreen(new ColorPickerScreen(this, "Цвет глубины", cfg.depthColor, c -> {
+                cfg.depthColor = c & 0xFFFFFF;
+            }));
+        }));
+
+        // --- Эффект по слову ---
+        y += gap;
+        addButton(new ButtonWidget(left, y, w, h, onOff("По слову", cfg.wordByWord), b -> {
             cfg.wordByWord = !cfg.wordByWord; b.setMessage(onOff("По слову", cfg.wordByWord));
         }));
-
-        y += gap;
-        addButton(new ButtonWidget(left, y, w, h, onOff("Подсветка слова", cfg.highlightActive), b -> {
+        addButton(new ButtonWidget(right, y, w, h, onOff("Подсветка слова", cfg.highlightActive), b -> {
             cfg.highlightActive = !cfg.highlightActive; b.setMessage(onOff("Подсветка слова", cfg.highlightActive));
         }));
-        addButton(new ButtonWidget(right, y, w, h, val("Увеличение", "x" + f2(cfg.highlightScale)), b -> {
+
+        y += gap;
+        addButton(new ButtonWidget(left, y, w, h, val("Увеличение", "x" + f2(cfg.highlightScale)), b -> {
             cfg.highlightScale = 1.0f + ((cfg.highlightScale - 1.0f + 0.05f) % 0.9f); b.setMessage(val("Увеличение", "x" + f2(cfg.highlightScale)));
         }));
-
-        y += gap;
-        addButton(new ButtonWidget(left, y, w, h, val("Насыщенность", "+" + f2(cfg.highlightSaturationBoost)), b -> {
+        addButton(new ButtonWidget(right, y, w, h, val("Насыщенность", "+" + f2(cfg.highlightSaturationBoost)), b -> {
             cfg.highlightSaturationBoost = (cfg.highlightSaturationBoost + 0.1f) % 1.1f; b.setMessage(val("Насыщенность", "+" + f2(cfg.highlightSaturationBoost)));
         }));
-        addButton(new ButtonWidget(right, y, w, h, val("Скорость", f2(cfg.appearSpeed) + "с"), b -> {
+
+        y += gap;
+        addButton(new ButtonWidget(left, y, w, h, val("Скорость", f2(cfg.appearSpeed) + "с"), b -> {
             cfg.appearSpeed = (cfg.appearSpeed + 0.05f) % 1.05f; b.setMessage(val("Скорость", f2(cfg.appearSpeed) + "с"));
+        }));
+        addButton(new ButtonWidget(right, y, w, h, val("Цвет подсветки", hex(cfg.highlightColor)), b -> {
+            client.openScreen(new ColorPickerScreen(this, "Цвет подсветки", cfg.highlightColor, c -> {
+                cfg.highlightColor = c & 0xFFFFFF;
+            }));
         }));
 
         y += gap;
-        addButton(new ButtonWidget(left, y, w, h, val("Цвет подсветки", Integer.toHexString(cfg.highlightColor).toUpperCase()), b -> {
-            cfg.highlightColor = nextColor(cfg.highlightColor); b.setMessage(val("Цвет подсветки", Integer.toHexString(cfg.highlightColor).toUpperCase()));
-        }));
-        addButton(new ButtonWidget(right, y, w, h, new LiteralText("Текст раньше (-250 мс)"), b -> cfg.offsetMs -= 250));
+        addButton(new ButtonWidget(left, y, w, h, new LiteralText("Текст раньше (-250 мс)"), b -> cfg.offsetMs -= 250));
+        addButton(new ButtonWidget(right, y, w, h, new LiteralText("Текст позже (+250 мс)"), b -> cfg.offsetMs += 250));
+
         infoY = y + gap;
         addButton(new ButtonWidget(width/2 - 100, infoY + 22, 200, h, new LiteralText("Готово"), b -> onClose()));
-    }
-
-    private static int nextColor(int c) {
-        int[] palette = {0x000000, 0xFFFFFF, 0xFF5555, 0x55FF55, 0x5555FF, 0xFFFF55, 0xFF55FF, 0x55FFFF, 0xFFAA00, 0xAA00FF};
-        for (int i = 0; i < palette.length; i++) if (palette[i] == c) return palette[(i+1)%palette.length];
-        return palette[0];
     }
 
     @Override
@@ -677,6 +692,83 @@ final class LyricsSettingsScreen extends Screen {
     }
 
     @Override public void removed() { cfg.save(); }
+    @Override public void onClose() { client.openScreen(parent); }
+}
+
+// ============================================================================
+//  ЦВЕТОВОЙ ПИКЕР (RGB-слайдеры + превью + HEX)
+// ============================================================================
+final class ColorPickerScreen extends Screen {
+    private final Screen parent;
+    private final String titleText;
+    private final IntConsumer onPick;
+
+    private int r, g, b;
+
+    ColorPickerScreen(Screen parent, String titleText, int initialColor, IntConsumer onPick) {
+        super(new LiteralText(titleText));
+        this.parent = parent;
+        this.titleText = titleText;
+        this.onPick = onPick;
+        this.r = (initialColor >> 16) & 0xFF;
+        this.g = (initialColor >> 8) & 0xFF;
+        this.b = initialColor & 0xFF;
+    }
+
+    @Override
+    protected void init() {
+        int w = 220, h = 20, gap = 26;
+        int x = width / 2 - w / 2;
+        int y = height / 2 - 70;
+
+        addButton(new SliderWidget(x, y, w, h, new LiteralText("Красный: " + r), r / 255.0) {
+            @Override protected void updateMessage() { setMessage(new LiteralText("Красный: " + (int)(getValue()*255))); }
+            @Override protected void applyValue() { r = (int)(getValue() * 255); }
+        });
+        y += gap;
+
+        addButton(new SliderWidget(x, y, w, h, new LiteralText("Зелёный: " + g), g / 255.0) {
+            @Override protected void updateMessage() { setMessage(new LiteralText("Зелёный: " + (int)(getValue()*255))); }
+            @Override protected void applyValue() { g = (int)(getValue() * 255); }
+        });
+        y += gap;
+
+        addButton(new SliderWidget(x, y, w, h, new LiteralText("Синий: " + b), b / 255.0) {
+            @Override protected void updateMessage() { setMessage(new LiteralText("Синий: " + (int)(getValue()*255))); }
+            @Override protected void applyValue() { b = (int)(getValue() * 255); }
+        });
+        y += gap + 10;
+
+        addButton(new ButtonWidget(x, y, w, h, new LiteralText("Применить"), btn -> {
+            int packed = ((r & 0xFF) << 16) | ((g & 0xFF) << 8) | (b & 0xFF);
+            onPick.accept(packed);
+            client.openScreen(parent);
+        }));
+        y += gap;
+        addButton(new ButtonWidget(x, y, w, h, new LiteralText("Отмена"), btn -> client.openScreen(parent)));
+    }
+
+    @Override
+    public void render(MatrixStack m, int mouseX, int mouseY, float delta) {
+        renderBackground(m);
+        drawCenteredText(m, textRenderer, title, width / 2, 20, 0xFFFFFF);
+
+        int previewColor = 0xFF000000 | ((r & 0xFF) << 16) | ((g & 0xFF) << 8) | (b & 0xFF);
+        int px1 = width / 2 - 60, px2 = width / 2 + 60;
+        int py1 = height / 2 + 95, py2 = py1 + 24;
+        DrawableHelper.fill(m, px1, py1, px2, py2, previewColor);
+        int bc = 0xFFFFFFFF;
+        DrawableHelper.fill(m, px1, py1, px2, py1 + 1, bc);
+        DrawableHelper.fill(m, px1, py2 - 1, px2, py2, bc);
+        DrawableHelper.fill(m, px1, py1, px1 + 1, py2, bc);
+        DrawableHelper.fill(m, px2 - 1, py1, px2, py2, bc);
+
+        String hex = String.format("#%02X%02X%02X", r, g, b);
+        drawCenteredText(m, textRenderer, new LiteralText(hex), width / 2, py2 + 6, 0xFFFFFF);
+
+        super.render(m, mouseX, mouseY, delta);
+    }
+
     @Override public void onClose() { client.openScreen(parent); }
 }
 
