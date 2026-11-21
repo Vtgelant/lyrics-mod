@@ -1,8 +1,0 @@
-{
-  "key.categories.lyrics": "Lyrics",
-  "key.lyrics.toggle": "Toggle lyrics HUD",
-  "key.lyrics.settings": "Open settings",
-  "key.lyrics.prev": "Previous track (Ctrl: offset -250ms)",
-  "key.lyrics.next": "Next track (Ctrl: offset +250ms)",
-  "key.lyrics.play": "Play / pause"
-}

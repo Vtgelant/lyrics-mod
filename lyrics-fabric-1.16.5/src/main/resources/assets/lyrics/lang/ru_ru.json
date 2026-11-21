@@ -1,8 +1,0 @@
-{
-  "key.categories.lyrics": "Lyrics",
-  "key.lyrics.toggle": "Вкл/выкл текст песни",
-  "key.lyrics.settings": "Открыть настройки",
-  "key.lyrics.prev": "Предыдущий трек (Ctrl: сдвиг -250мс)",
-  "key.lyrics.next": "Следующий трек (Ctrl: сдвиг +250мс)",
-  "key.lyrics.play": "Пауза / воспроизведение"
-}
